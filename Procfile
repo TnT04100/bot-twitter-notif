@@ -1,0 +1,1 @@
+worker: python notification_live.py 
