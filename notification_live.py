@@ -79,7 +79,7 @@ def temps_jour():
 
 def post_tweet(streamer_name, title, hour, day, name):
     print(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
-    #api.update_status(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
+    api.update_status(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
 
 
 def stream_info(streamer_name):
