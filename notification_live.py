@@ -138,7 +138,7 @@ def reply():
                 if wao():
                     reponse+="Wao "
                     i+=1
-                if stake():
+                if noly():
                     reponse+="Stake "
                     i+=1
                 if aztral():
@@ -235,9 +235,9 @@ def nalkya():
         return True
     else:
         return False
-def stake():
-    name = "stake"
-    usual_name = "Stake"
+def noly():
+    name = "nolystic"
+    usual_name = "Noly"
     bdd = "id_stake"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -310,7 +310,7 @@ while True:
     wao()
     nalkya()
     eversax()
-    stake()
+    noly()
     itachi()
     aztral()
     double61()
