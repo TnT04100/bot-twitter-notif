@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from riotwatcher import LolWatcher
 import tweepy
 import os
 import psycopg2
@@ -12,6 +13,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+api_key=str(os.getenv('RIOT_API_KEY'))
+watcher = LolWatcher(api_key)
+my_region = 'euw1'
 twitter_api_key = os.getenv('TWITTER_API_KEY')
 twitter_api_secret = os.getenv('TWITTER_API_KEY_SECRET')
 twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
@@ -31,79 +35,117 @@ headers = {
 }
 
 def is_live(donnees, id_bdd, streamer_name, name):
-    if len(donnees['data']) == 1:
-        #Le Streamer est en live
-        if is_newlive(id_bdd, streamer_name):
-            title = stream_info(streamer_name)
-            title = title[0]
-            post_tweet(streamer_name, title, temps_heure(), temps_jour(), name)
-            return True
-        else:
-            print("%s est dans le même live" % (streamer_name))
-            return True
-    else:
-        #Le Streamer n'est pas en live
-        return False
+	booleen = False
+	if len(donnees['data']) == 1:
+		#Le Streamer est en live
+		if is_newlive(id_bdd, streamer_name):
+			title = stream_info(streamer_name)
+			title = title[0]
+			post_tweet(streamer_name, title, temps_heure(), temps_jour(), name, id_bdd, booleen)
+			return True
+		else:
+			print("%s est dans le même live" % (streamer_name))
+			conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+			cur = conn.cursor()
+			cur.execute("SELECT game_name FROM live WHERE name = '%s'" % (id_bdd))
+			game_name_bdd = cur.fetchone()
+			game_name_bdd = game_name_bdd[0]
+			game_name = stream_info(streamer_name)
+			game_name = game_name[2]
+			if game_name != game_name_bdd:
+				booleen = True
+				cur.execute("UPDATE live SET game_name = '%s' WHERE name =  '%s' " % ((game_name), (id_bdd)),)
+				conn.commit()
+				conn.close()
+				title = stream_info(streamer_name)
+				title = title[0]
+				post_tweet(streamer_name, title, temps_heure(), temps_jour(), name, id_bdd, booleen)
+				return True
+			else:
+        		#Le Streamer n'est pas en live
+				return False
 
 def is_newlive(id_bdd, streamer_name):  
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-    cur = conn.cursor()
-    cur.execute("SELECT (%s) FROM bot_twitter" % (id_bdd))
-    stream_id_bdd = cur.fetchone()
-    stream_id_bdd = stream_id_bdd[0]
-    stream_id = stream_info(streamer_name)
-    stream_id = stream_id[1]
-    if stream_id != stream_id_bdd:
-        cur.execute("UPDATE bot_twitter SET %s=%d;" % ((id_bdd), (int(stream_id))),)
-        conn.commit()
-        conn.close()
-        return True
-    else:
-        return False
+	conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+	cur = conn.cursor()
+	cur.execute("SELECT id FROM live WHERE name = '%s'" % (id_bdd))
+	stream_id_bdd = cur.fetchone()
+	stream_id_bdd = stream_id_bdd[0]
+	stream_id = stream_info(streamer_name)
+	stream_id = stream_id[1]
+	game_name = stream_info(streamer_name)
+	game_name = game_name[2]
+	if (int(stream_id) != stream_id_bdd):
+		cur.execute("UPDATE live SET id=%d WHERE name='%s'" % (int((stream_id)), (id_bdd)),)
+		cur.execute("UPDATE live SET game_name = '%s' WHERE name = '%s'" % ((game_name), (id_bdd)),)
+		conn.commit()
+		conn.close()
+		return True
+	else:
+		return False
 
 def get_live_info(streamer_name, id_bdd, name):
-    stream = requests.get('https://api.twitch.tv/helix/streams?user_login=' + streamer_name, headers=headers)
-    data = stream.json()
-    if is_live(data, id_bdd, streamer_name, name):
-        print("%s est en live" % (streamer_name))
-        return True
-    else:
-        print("%s n'est pas en live" % (streamer_name))
-        return False
+	stream = requests.get('https://api.twitch.tv/helix/streams?user_login=' + streamer_name, headers=headers)
+	data = stream.json()
+	if is_live(data, id_bdd, streamer_name, name):
+		return True
+	else:
+		return False
 
 def temps_heure():
-    return (datetime.now()+timedelta( hours = 1 )).strftime("%H:%M")
+	return (datetime.now()+timedelta(hours = 1)).strftime("%H:%M")
 
 def temps_jour():
-    return (datetime.now()).strftime("%d-%m-%Y")
+	return (datetime.now()).strftime("%d-%m-%Y")
 
-def post_tweet(streamer_name, title, hour, day, name):
-    print(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
-    api.update_status(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
+def post_tweet(streamer_name, title, hour, day, name, id_bdd, booleen):
+	conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+	cur = conn.cursor()
+	if booleen == False:
+		print(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
+		tweet = api.update_status(name + " a lancé un nouveau live à "+hour+" le "+day+" : \n"+title+"\ntwitch.tv/"+streamer_name)
+		id_tweet = tweet.id
+		cur.execute("UPDATE live SET tweet_id = %d WHERE name = '%s'" % ((id_tweet), (id_bdd)), )
+		conn.commit()
+		conn.close()
+	elif booleen == True:
+		cur.execute("SELECT tweet_id FROM live WHERE name = '%s'" % (id_bdd))
+		tweet_id = cur.fetchone()
+		tweet_id = tweet_id[0]
+		name = name[2::]
+		cur.execute("SELECT game_name FROM live WHERE name = '%s'" % (id_bdd))
+		game_name = cur.fetchone()
+		game_name = game_name[0]
+		texte = name + " a changé de catégorie en " +game_name
+		print(texte)
+		tweet2 = api.update_status(status=texte, 
+		                  in_reply_to_status_id=tweet_id, 
+		                 auto_populate_reply_metadata=True)
+		id_tweet2 = tweet2.id
+		cur.execute("UPDATE live SET tweet_id = %d WHERE name = '%s'" % ((id_tweet2), (id_bdd)), )
+		conn.commit()
+		conn.close()
 
 
 def stream_info(streamer_name):
-    stream = requests.get('https://api.twitch.tv/helix/streams?user_login=' + streamer_name, headers=headers)
-    donnees = stream.json()
-    test = json.dumps(donnees)
-    test = test[10::]
-    test = test[:-20]
-    final = json.loads(test)
+    stream = requests.get('https://api.twitch.tv/helix/streams?user_login=' + streamer_name, headers=headers).json()['data']
+    final = stream[0]
     titre = final['title']
     stream_id = final['id']
-    return titre, stream_id
+    game_name = final['game_name']
+    return titre, stream_id, game_name
 
 def dernier_tweet_lu():
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur=conn.cursor()
-    cur.execute("SELECT id FROM last_id_twitter")
+    cur.execute("SELECT tweet_id FROM live WHERE name = 'id_tweetreply'")
     last_id = cur.fetchone()
     last_id = int(last_id[0])
     return(last_id)
 def stock_dernier_tweet_lu(last_seen_id):
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cur=conn.cursor()
-    cur.execute("UPDATE last_id_twitter SET id=(%d);" % (int(last_seen_id)),)
+    cur.execute("UPDATE live SET id_tweetreply=(%d) WHERE name = 'id_tweetreply';" % (int(last_seen_id)),)
     conn.commit()
     conn.close()
 def reply():
@@ -113,7 +155,7 @@ def reply():
     tweets = api.mentions_timeline(count = 5, since_id = dernier_tweet_lu(),tweet_mode='extended')
     for tweet in reversed(tweets):
         if dernier_tweet_lu() != tweet.id:
-            if ("@kcorpnotiflive #kcorp stream") in tweet.full_text.lower():
+            if ("kcorpnotiflive #kcorp stream") in tweet.full_text.lower():
                 if saken():
                     reponse+="Saken "
                     i+=1
@@ -139,7 +181,7 @@ def reply():
                     reponse+="Wao "
                     i+=1
                 if noly():
-                    reponse+="Stake "
+                    reponse+="Noly "
                     i+=1
                 if aztral():
                     reponse+="Aztral "
@@ -165,15 +207,15 @@ def reply():
                 if (saken() and kamet0() and cabochard() and hantera() and bumm() and rekkles() and bren() and wao() and stake() and aztral() and itachi() and double61() and canbizz() and darker() and nalkya() and eversax())==False:  
                     reponse+="Personne"
                 if i>=2:
-                    api.update_status("@"+tweet.user.screen_name+reponse+" sont en Live", in_reply_to_status_id = tweet.id)
+                    api.update_status(""+tweet.user.screen_name+reponse+" sont en Live", in_reply_to_status_id = tweet.id)
                     stock_dernier_tweet_lu(tweet.id)
                 elif i<2:
-                    api.update_status("@"+tweet.user.screen_name+reponse+" est en Live", in_reply_to_status_id = tweet.id)
+                    api.update_status(""+tweet.user.screen_name+reponse+" est en Live", in_reply_to_status_id = tweet.id)
                     stock_dernier_tweet_lu(tweet.id)
 
 def saken():
     name = "saken_lol"
-    usual_name = "Saken"
+    usual_name = ".@Saken_lol"
     bdd = "id_saken"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -181,47 +223,47 @@ def saken():
         return False
 def kameto():
     name = "kamet0"
-    usual_name = "Kameto"
+    usual_name = ".@Kammeto"
     bdd = "id_kameto"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
-def rekkles():
-    name = "rekkles"
-    usual_name = "Rekkles"
-    bdd = "id_rekkles"
+def kaori():
+    name = "kaori123"
+    usual_name = ".@KaoriLoL"
+    bdd = "id_kaori"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
 def cabochard():
     name = "Cabochardlol"
-    usual_name = "Cabochard"
+    usual_name = ".@CabochardLoL" 
     bdd = "id_cabochard"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
-def bumm():
-    name = "113bumm"
-    usual_name = "Bumm"
-    bdd = "id_bumm"
+def skeanz():
+    name = "skeanz"
+    usual_name = ".@Skeanz_lol"
+    bdd = "id_skeanz"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
-def hantera():
+def whiteinn():
     name = "hantera1"
-    usual_name = "Hantera"
-    bdd = "id_hantera"
+    usual_name = ".@Whitein15"
+    bdd = "id_whiteinn"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
 def wao():
     name = "waolol1"
-    usual_name = "Wao"
+    usual_name = ".@Waolol"
     bdd = "id_wao"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -229,31 +271,39 @@ def wao():
         return False
 def nalkya():
     name = "NalkyaLoL"
-    usual_name = "Nalkya"
-    bdd = "id_nelkya"
+    usual_name = ".@NalkyaLoL"
+    bdd = "id_nalkya"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
-def noly():
-    name = "nolystic"
-    usual_name = "Noly"
-    bdd = "id_stake"
+def nerroh():
+    name = "nerroh1"
+    usual_name = ".@NerrohLoL"
+    bdd = "id_nerroh"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
-def aztral():
-    name = "aztral"
-    usual_name = "Aztral"
-    bdd = "id_aztral"
+def vatira():
+    name = "vatira_"
+    usual_name = ".@Vatira5"
+    bdd = "id_vatira"
+    if get_live_info(name, bdd, usual_name):
+        return True
+    else:
+        return False
+def exotiik():
+    name = "exotiikrl"
+    usual_name = ".@exotiikrl"
+    bdd = "id_exotiik"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
         return False
 def itachi():
     name = "itachi_rl"
-    usual_name = "Itachi"
+    usual_name = ".@itachi_rl"
     bdd = "id_itachi"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -261,7 +311,7 @@ def itachi():
         return False
 def eversax():
     name = "Eversax"
-    usual_name = "Eversax"
+    usual_name = ".@Eversax"
     bdd = "id_eversax"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -269,7 +319,7 @@ def eversax():
         return False
 def bren():
     name = "bren_tm2"
-    usual_name = "Bren"
+    usual_name = ".@Bren_TM2"
     bdd = "id_bren"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -277,7 +327,7 @@ def bren():
         return False
 def double61():
     name = "KC_Double61"
-    usual_name = "Double"
+    usual_name = ".@TrainerDouble"
     bdd = "id_kcdouble"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -285,7 +335,7 @@ def double61():
         return False
 def canbizz():
     name = "Canbizz_"
-    usual_name = "Canbizz"
+    usual_name = ".@Canbizz_"
     bdd = "id_canbizz"
     if get_live_info(name, bdd, usual_name):
         return True
@@ -293,30 +343,101 @@ def canbizz():
         return False
 def darker():
     name = "DarkeR_TM"
-    usual_name = "Darker"
+    usual_name = ".@DarkeR_TM"
     bdd = "id_darker"
     if get_live_info(name, bdd, usual_name):
         return True
     else:
-        return False        
+        return False
+
+def zeish():
+    name = "ZE1SH"
+    usual_name = ".@ZE1SHH"
+    bdd = "id_zeish"
+    if get_live_info(name, bdd, usual_name):
+        return True
+    else:
+        return False
+
+def pm():
+    name = "pmleek"
+    usual_name = ".@pmleek"
+    bdd = "id_pm"
+    if get_live_info(name, bdd, usual_name):
+        return True
+    else:
+        return False
+
+def nivera():
+    name = "nivera"
+    usual_name = ".@Nivera__"
+    bdd = "id_nivera"
+    if get_live_info(name, bdd, usual_name):
+        return True
+    else:
+        return False
+
+def newzera():
+    name = "newzeraaaa"
+    usual_name = ".@Newzeraaa"
+    bdd = "id_newzera"
+    if get_live_info(name, bdd, usual_name):
+        return True
+    else:
+        return False
+
+def shin():
+    name = "shinsznn"
+    usual_name = ".@shinVALORANT"
+    bdd = "id_shin"
+    if get_live_info(name, bdd, usual_name):
+        return True
+    else:
+        return False
+
+def scream():
+	name = "scream"
+	usual_name = ".@ScreaM_"
+	bdd = "id_scream"
+	if get_live_info(name, bdd, usual_name):
+		return True
+	else:
+		return False
+
+def xms51():
+	name = "xms51"
+	usual_name = ".@xms51"
+	bdd = "id_xms51"
+	if get_live_info(name, bdd, usual_name):
+		return True
+	else:
+		return False
+
 
 while True:
-    saken()
-    kameto()
-    rekkles()
-    cabochard()
-    hantera()
-    bumm()
-    wao()
-    nalkya()
-    eversax()
-    noly()
-    itachi()
-    aztral()
-    double61()
-    canbizz()
-    darker()
-    bren()
-    reply()
-    time.sleep(15)
+	saken()
+	kameto()
+	kaori()
+	cabochard()
+	#whiteinn()
+	skeanz()
+	wao()
+	nalkya()
+	eversax()
+	vatira()
+	itachi()
+	exotiik()
+	double61()
+	canbizz()
+	darker()
+	bren()
+	pm()
+	zeish()
+	xms51()
+	scream()
+	nivera()
+	shin()
+	newzera()
+	#reply()
+	time.sleep(15)
 
